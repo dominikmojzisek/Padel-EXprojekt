@@ -1,1 +1,45 @@
+# Nasazení aplikace na GitHub Pages (spustí se po každém nahrání změn
+# do větve main nebo master, případně ručně v záložce Actions → Run workflow).
+name: Nasadit na GitHub Pages
 
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Stažení souborů
+        uses: actions/checkout@v4
+
+      - name: Nastavení Pages
+        uses: actions/configure-pages@v5
+
+      - name: Příprava souborů aplikace
+        run: |
+          mkdir _site
+          cp index.html manifest.webmanifest sw.js icon.svg _site/
+          touch _site/.nojekyll
+
+      - name: Nahrání balíčku
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Nasazení
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Padel – přesměrování</title>
+<script>
+/* GitHub Pages zobrazí tuto stránku pro každou neexistující adresu
+   (např. starou záložku na padel.html). Přesměruje na hlavní stránku aplikace. */
+(function(){
+  var seg=location.pathname.split('/').filter(Boolean);
+  var base=location.hostname.endsWith('github.io')&&seg.length?'/'+seg[0]+'/':'/';
+  location.replace(base+location.search+location.hash);
+})();
+</script>
+</head>
+<body style="font-family:system-ui,sans-serif;text-align:center;padding:40px">
+<p>Přesměrovávám na aplikaci Padel…</p>
+<p><a href="./">Pokud se nic nestane, klepni sem.</a></p>
+</body>
+</html>

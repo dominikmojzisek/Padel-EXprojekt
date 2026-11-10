@@ -1,6 +1,6 @@
 /* Service worker: aplikace funguje i bez internetu.
    Online se vždy zkusí načíst nejnovější verze, offline se použije uložená kopie. */
-const CACHE = 'padel-v3';
+const CACHE = 'padel-v4';
 const FILES = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', e => {

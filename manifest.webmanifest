@@ -1,7 +1,7 @@
 {
-  "name": "Padel – losování a žebříček",
-  "short_name": "Padel",
-  "description": "Losování vyrovnaných dvojic v padelu, hodnocení hráčů a žebříček.",
+  "name": "Padel & Squash – losování a žebříček",
+  "short_name": "Padel & Squash",
+  "description": "Losování vyrovnaných zápasů v padelu a squashi, hodnocení hráčů a žebříček.",
   "lang": "cs",
   "id": "./",
   "start_url": "./",

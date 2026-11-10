@@ -6,19 +6,24 @@
 <meta name="theme-color" content="#0f766e">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Padel">
+<meta name="apple-mobile-web-app-title" content="Padel & Squash">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon.svg">
-<title>Padel – losování a žebříček</title>
+<title>Padel & Squash – losování a žebříček</title>
 <style>
 :root{--bg:#f3f5f7;--card:#fff;--txt:#1b2733;--mut:#6b7a89;--pri:#0f766e;--pri2:#14b8a6;--bd:#e1e6ea;--ok:#16a34a;--bad:#dc2626;--warn:#d97706;--chip:#eef2f5}
 @media(prefers-color-scheme:dark){:root{--bg:#10171d;--card:#1a232b;--txt:#e8eef3;--mut:#93a3b1;--bd:#2a3641;--chip:#25313b}}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{margin:0;font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--txt);padding-bottom:calc(76px + env(safe-area-inset-bottom))}
 header{position:sticky;top:0;z-index:5;background:var(--pri);color:#fff;padding:calc(10px + env(safe-area-inset-top)) 14px 10px}
-h1{font-size:19px;margin:0}
+h1{font-size:19px;margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sp{display:flex;background:rgba(255,255,255,.18);border-radius:10px;padding:3px;gap:3px;flex:none}
+.sp button{border:0;background:none;color:#fff;font:inherit;font-size:14px;padding:6px 10px;border-radius:8px}
+.sp button.on{background:#fff;color:var(--pri);font-weight:700}
+body.squash header{background:#7c3aed}
+body.squash{--pri:#7c3aed;--pri2:#a78bfa}
 h2{margin:0;font-size:20px}
 h3{margin:0 0 8px;font-size:17px}
 main{max-width:720px;margin:0 auto;padding:12px}
@@ -108,7 +113,7 @@ textarea{font:inherit;color:var(--txt);background:var(--bg);border:1px solid var
 </style>
 </head>
 <body>
-<header><h1 id="title">Padel</h1></header>
+<header><div class="row between"><h1 id="title">Padel</h1><div class="sp" id="sp"></div></div></header>
 <main id="view"></main>
 <nav id="tabs">
   <button data-t="round"><span>🎾</span>Kolo</button>
@@ -132,22 +137,38 @@ const czDate=s=>{const a=s.split('-');return Number(a[2])+'. '+Number(a[1])+'. '
 const byName=(a,b)=>a.name.localeCompare(b.name,'cs');
 const LEVELS=[['Začátečník',800],['Mírně pokročilý',900],['Střední',1000],['Pokročilý',1100],['Výborný',1200]];
 
-function defaults(){return{v:1,mod:0,players:[],rounds:[],sessions:[],cur:null,
-  set:{courts:0,k:24,win:3,draw:1,loss:0,perPt:0,total:0,mode:'bal',hist:'session'}}}
+/* Hráči jsou společní pro oba sporty; rating, dny (a v nich kola), nastavení a dostupnost má každý sport vlastní. */
+const DSET=()=>({courts:0,k:24,win:3,draw:1,loss:0,perPt:0,mode:'bal',hist:'session'});
+function defaults(){return{v:2,mod:0,sport:'padel',curBy:{},players:[],rounds:[],sessions:[],cur:null,set:DSET(),set2:DSET()}}
+function merge(j){
+  const s=Object.assign(defaults(),j);
+  s.set=Object.assign(DSET(),j.set||{});s.set2=Object.assign(DSET(),j.set2||{});s.curBy=j.curBy||{};
+  if(s.sport!=='squash')s.sport='padel';
+  return s;
+}
 function load(){
   let s=defaults();
-  try{const j=JSON.parse(localStorage.getItem(KEY));if(j&&Array.isArray(j.players)){s=Object.assign(s,j);s.set=Object.assign(defaults().set,j.set||{})}}catch(e){}
+  try{const j=JSON.parse(localStorage.getItem(KEY));if(j&&Array.isArray(j.players))s=merge(j)}catch(e){}
   return s;
 }
 let S=load();
 const UI={tab:'round',scope:'ses',lsub:'ladder',sort:'pts',mx:'opp',psort:'name',sel:null,open:{}};
 function save(keepMod){if(!keepMod)S.mod=Date.now();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){toast('Nelze uložit data do prohlížeče!')}}
-function newSession(name){const s={id:uid(),name:name||('Den '+czDate(iso())),date:iso()};S.sessions.push(s);S.cur=s.id;return s}
+function newSession(name){const s={id:uid(),sport:S.sport,name:name||('Den '+czDate(iso())),date:iso()};S.sessions.push(s);S.cur=s.id;S.curBy[S.sport]=s.id;return s}
 function curSes(){return S.sessions.find(s=>s.id===S.cur)}
+/* zajistí, že aktuální den patří k vybranému sportu (při přepnutí sportu vrátí naposledy otevřený den) */
 function ensureSession(){
-  S.sessions.forEach(s=>{if(/^Večer /.test(s.name))s.name='Den '+s.name.slice(6)});   /* přejmenuje názvy z dřívější verze */
-  if(!S.sessions.length)newSession();
-  else if(!curSes())S.cur=S.sessions[S.sessions.length-1].id;
+  if(!S.curBy)S.curBy={};
+  S.sessions.forEach(s=>{
+    if(!s.sport)s.sport='padel';   /* data z dřívější verze = padel */
+    if(/^Večer /.test(s.name))s.name='Den '+s.name.slice(6);
+  });
+  const ok=id=>S.sessions.some(s=>s.id===id&&s.sport===S.sport);
+  if(!ok(S.cur)){
+    if(ok(S.curBy[S.sport]))S.cur=S.curBy[S.sport];
+    else{const l=S.sessions.filter(s=>s.sport===S.sport);if(l.length)S.cur=l[l.length-1].id;else newSession()}
+  }
+  S.curBy[S.sport]=S.cur;
 }
 ensureSession();
 const P=id=>S.players.find(p=>p.id===id);
@@ -155,18 +176,29 @@ const nm=id=>{const p=P(id);return p?p.name:'?'};
 const isScored=m=>m.sa!=null&&m.sb!=null;
 const livePl=()=>S.players.filter(p=>!p.arch);
 
+/* =====================  SPORTY  ===================== */
+const SPORTS={padel:{name:'Padel',ico:'🎾',ts:2,unit:'každý vyhraný gem'},squash:{name:'Squash',ico:'⚫',ts:1,unit:'každou vyhranou hru'}};
+const SPd=()=>SPORTS[S.sport]||SPORTS.padel;
+const TS=()=>SPd().ts;                                   /* velikost týmu: padel 2, squash 1 */
+const ST=()=>S.sport==='squash'?S.set2:S.set;            /* nastavení aktuálního sportu */
+const ON=()=>S.sport==='squash'?'on2':'on';              /* dostupnost hráče pro aktuální sport */
+const R0=p=>S.sport==='squash'?(p.r0s!=null?p.r0s:p.r0):p.r0;   /* výchozí rating pro aktuální sport */
+const spRounds=()=>{const ok={};S.sessions.forEach(s=>{if((s.sport||'padel')===S.sport)ok[s.id]=1});return S.rounds.filter(r=>ok[r.sid])};
+const avgR=(T,R)=>T.reduce((s,id)=>s+R[id].rating,0)/T.length;
+const tName=T=>T.map(nm).join(' + ');
+
 /* =====================  VÝPOČET RATINGU A STATISTIK  ===================== */
 /* Všechno se počítá znovu z odehraných zápasů, takže úprava či smazání výsledku
    přepočítá rating i žebříček správně. Rating = Elo pro dvojice (průměr týmu). */
 function derive(){
-  const R={},SS={},DM={},st=S.set;
-  const mk=p=>({id:p.id,rating:p.r0,g:0,w:0,d:0,l:0,pts:0,gf:0,ga:0,hist:[p.r0],pw:{},ow:{},rstart:null});
+  const R={},SS={},DM={},st=ST();
+  const mk=p=>({id:p.id,rating:R0(p),g:0,w:0,d:0,l:0,pts:0,gf:0,ga:0,hist:[R0(p)],pw:{},ow:{},rstart:null});
   S.players.forEach(p=>{R[p.id]=mk(p);SS[p.id]=mk(p)});
-  S.rounds.forEach(rd=>rd.matches.forEach(m=>{
+  spRounds().forEach(rd=>rd.matches.forEach(m=>{
     if(!isScored(m))return;
     const A=m.a,B=m.b;
     if(!A.concat(B).every(id=>R[id]))return;
-    const ra=(R[A[0]].rating+R[A[1]].rating)/2,rb=(R[B[0]].rating+R[B[1]].rating)/2;
+    const ra=avgR(A,R),rb=avgR(B,R);
     const ea=1/(1+Math.pow(10,(rb-ra)/400));
     const act=m.sa>m.sb?1:m.sa<m.sb?0:.5;
     const mult=1+Math.min(Math.abs(m.sa-m.sb),12)/24;   /* výraznější výhra = o trochu větší změna */
@@ -182,7 +214,7 @@ function derive(){
           o.g++;if(res===1)o.w++;else if(res===0)o.l++;else o.d++;
           o.gf+=gf;o.ga+=ga;
           o.pts+=(res===1?st.win:res===0?st.loss:st.draw)+gf*st.perPt;
-          const pa=T[1-i],x=o.pw[pa]||(o.pw[pa]={g:0,w:0});x.g++;x.w+=res;
+          if(T.length>1){const pa=T[1-i],x=o.pw[pa]||(o.pw[pa]={g:0,w:0});x.g++;x.w+=res}
           O.forEach(q=>{const y=o.ow[q]||(o.ow[q]={g:0,w:0});y.g++;y.w+=res});
         });
         p.rating+=delta;p.hist.push(p.rating);DM[m.id][id]=delta;
@@ -196,14 +228,14 @@ function derive(){
 /* Kdo s kým (spoluhráč/soupeř) už byl rozlosován. scope: 'ses' | 'all' | undefined (podle nastavení) */
 function pairHist(exclude,scope){
   const Pm={},Om={},G={},RS={};
-  if(!scope)scope=S.set.hist==='session'?'ses':'all';
+  if(!scope)scope=ST().hist==='session'?'ses':'all';
   const k=(a,b)=>a<b?a+'|'+b:b+'|'+a;
   const inc=(M,a,b)=>{const q=k(a,b);M[q]=(M[q]||0)+1};
-  S.rounds.forEach(rd=>{
+  spRounds().forEach(rd=>{
     if(rd.id===exclude)return;
     if(scope==='ses'&&rd.sid!==S.cur)return;
     rd.matches.forEach(m=>{
-      inc(Pm,m.a[0],m.a[1]);inc(Pm,m.b[0],m.b[1]);
+      if(m.a.length>1){inc(Pm,m.a[0],m.a[1]);inc(Pm,m.b[0],m.b[1])}
       m.a.forEach(x=>m.b.forEach(y=>inc(Om,x,y)));
       m.a.concat(m.b).forEach(x=>G[x]=(G[x]||0)+1);
     });
@@ -214,31 +246,37 @@ function pairHist(exclude,scope){
 
 /* =====================  LOSOVÁNÍ  ===================== */
 function courtsFor(n,override){
-  let c=Math.floor(n/4);const mc=override!=null?override:S.set.courts;
+  let c=Math.floor(n/(2*TS()));const mc=override!=null?override:ST().courts;
   if(mc>0)c=Math.min(c,mc);
   return c;
 }
 function draw(ids,opt){
   opt=opt||{};
-  const H=pairHist(opt.exclude),HS=pairHist(opt.exclude,'ses'),D=derive().R,mode=opt.mode||S.set.mode;
-  const courts=courtsFor(ids.length,opt.courts),m=courts*4;
+  const H=pairHist(opt.exclude),HS=pairHist(opt.exclude,'ses'),D=derive().R,mode=opt.mode||ST().mode;
+  const ts=TS(),per=2*ts,courts=courtsFor(ids.length,opt.courts),m=courts*per;
   if(!m)return null;
   /* 1) kdo hraje: přednost mají hráči s nejméně odehranými zápasy (pauzy se střídají spravedlivě) */
   const order=ids.map(id=>({id,r:Math.random()})).sort((a,b)=>(HS.G[a.id]||0)-(HS.G[b.id]||0)||a.r-b.r).map(o=>o.id);
   const play=order.slice(0,m),rest=order.slice(m);
   const rt={};play.forEach(id=>rt[id]=D[id].rating);
   const mean=play.reduce((s,id)=>s+rt[id],0)/m;
-  /* váhy: [vyrovnanost zápasu, opakování spoluhráče, opakování soupeře, tým blízko průměru (nejlepší+nejslabší)] */
-  const W={bal:[3,6,2,1],str:[10,2,.5,2],rot:[.7,8,5,.3]}[mode]||[3,6,2,1];
+  /* váhy: [vyrovnanost zápasu, opakování spoluhráče, opakování soupeře, tým blízko průměru (nejlepší+nejslabší)]
+     padel (2 na 2): všechny čtyři složky;
+     squash (1 na 1): jen vyrovnanost a opakování soupeře – při stejném soupeři vícekrát roste penalizace */
+  const WT=ts>1?{bal:[3,6,2,1],str:[10,2,.5,2],rot:[.7,8,5,.3]}:{bal:[2,0,6,0],str:[8,0,1.5,0],rot:[.4,0,10,0]};
+  const W=WT[mode]||WT.bal;
   const wb=W[0],wp=W[1],wo=W[2],wt=W[3];
   const sq=x=>x*x;
   function cost(a){
     let c=0;
-    for(let i=0;i<m;i+=4){
-      const A=[a[i],a[i+1]],B=[a[i+2],a[i+3]];
-      const sa=(rt[A[0]]+rt[A[1]])/2,sb=(rt[B[0]]+rt[B[1]])/2;
-      c+=wb*sq((sa-sb)/100)+wt*(sq((sa-mean)/100)+sq((sb-mean)/100));
-      c+=wp*(sq(H.P[H.k(A[0],A[1])]||0)+sq(H.P[H.k(B[0],B[1])]||0));
+    for(let i=0;i<m;i+=per){
+      const A=a.slice(i,i+ts),B=a.slice(i+ts,i+per);
+      let sa=0,sb=0;for(const x of A)sa+=rt[x];for(const y of B)sb+=rt[y];sa/=ts;sb/=ts;
+      c+=wb*sq((sa-sb)/100);
+      if(ts>1){
+        c+=wt*(sq((sa-mean)/100)+sq((sb-mean)/100));
+        c+=wp*(sq(H.P[H.k(A[0],A[1])]||0)+sq(H.P[H.k(B[0],B[1])]||0));
+      }
       for(const x of A)for(const y of B)c+=wo*sq(H.O[H.k(x,y)]||0);
     }
     return c;
@@ -259,9 +297,9 @@ function draw(ids,opt){
     if(c<bc){bc=c;best=a.slice()}
   }
   const matches=[];
-  for(let i=0;i<m;i+=4){
+  for(let i=0;i<m;i+=per){
     const byR=(x,y)=>rt[y]-rt[x];
-    matches.push({id:uid(),a:[best[i],best[i+1]].sort(byR),b:[best[i+2],best[i+3]].sort(byR),sa:null,sb:null});
+    matches.push({id:uid(),a:best.slice(i,i+ts).sort(byR),b:best.slice(i+ts,i+per).sort(byR),sa:null,sb:null});
   }
   const tot=mm=>mm.a.concat(mm.b).reduce((s,id)=>s+rt[id],0);
   matches.sort((x,y)=>tot(y)-tot(x));   /* kurt 1 = nejsilnější hráči */
@@ -304,6 +342,11 @@ const MODE_HINT={
   bal:'Nejsilnější hráč jde s nejslabším, dva průměrní spolu – týmy jsou vyrovnané a zároveň se střídají spoluhráči i soupeři.',
   str:'Důraz na co nejvyrovnanější zápasy podle ratingu.',
   rot:'Důraz na to, aby každý hrál proti každému a se všemi; síla je až na druhém místě.'};
+const MODE_HINT_SQ={
+  bal:'Soupeři mají podobnou úroveň a zároveň se střídají, aby postupně hrál každý s každým.',
+  str:'Důraz na co nejvyrovnanější zápasy – hráči podobné síly proti sobě.',
+  rot:'Důraz na to, aby každý hrál proti každému; síla je až na druhém místě.'};
+const modeHint=()=>(S.sport==='squash'?MODE_HINT_SQ:MODE_HINT)[ST().mode];
 
 function slot(rd,pos,val){
   const p=pos.split('.'),isM=p[0]==='m';
@@ -321,7 +364,7 @@ function chip(id,rid,pos,D,delta){
 }
 function matchHTML(rd,m,mi,D){
   const sc=isScored(m),win=sc&&m.sa>m.sb?'a':sc&&m.sb>m.sa?'b':'';
-  const ra=(D.R[m.a[0]].rating+D.R[m.a[1]].rating)/2,rb=(D.R[m.b[0]].rating+D.R[m.b[1]].rating)/2;
+  const ra=avgR(m.a,D.R),rb=avgR(m.b,D.R);
   const pa=Math.round(100/(1+Math.pow(10,(rb-ra)/400)));
   const team=(side)=>`<div class="team ${win===side?'win':''}">`+m[side].map((id,i)=>chip(id,rd.id,`m.${mi}.${side}.${i}`,D,sc&&D.DM[m.id]?D.DM[m.id][id]:null)).join('')+'</div>';
   const inp=(s)=>`<input type="number" inputmode="numeric" min="0" max="99" data-ch="score" data-r="${rd.id}" data-m="${m.id}" data-s="${s}" value="${m['s'+s]==null?'':m['s'+s]}" aria-label="Skóre">`;
@@ -340,17 +383,17 @@ function roundHTML(rd,idx,D,latest){
   return h;
 }
 VIEW.round=()=>{
-  const D=derive(),all=livePl(),n=all.filter(p=>p.on).length;
+  const D=derive(),all=livePl(),on=ON(),n=all.filter(p=>p[on]).length,need=2*TS();
   if(!all.length)return emptyBox('👥','Zatím tu nejsou žádní hráči. Nejdřív je přidej.',
     '<button class="btn" data-act="addP">+ Přidat hráče</button><button class="btn ghost" data-act="demo">Vyzkoušet na ukázkových hráčích</button>');
   const courts=courtsFor(n),rs=sesRounds(),last=rs[rs.length-1];
   const replace=last&&!last.matches.some(isScored);
   const label=!last?'🎲 Losovat první kolo':replace?'🔀 Přelosovat kolo':'🎲 Losovat další kolo';
-  let h=`<div class="card"><div class="row between"><div><b>${n}</b> z ${all.length} hráčů je dostupných<br><small class="mut">${n<4?'Potřeba aspoň 4 hráči':courts+' '+pl(courts)+', '+(n-courts*4>0?(n-courts*4)+' odpočívá':'nikdo neodpočívá')}</small></div>
+  let h=`<div class="card"><div class="row between"><div><b>${n}</b> z ${all.length} hráčů je dostupných<br><small class="mut">${n<need?'Potřeba aspoň '+need+' hráči':courts+' '+pl(courts)+', '+(n-courts*need>0?(n-courts*need)+' odpočívá':'nikdo neodpočívá')}</small></div>
   <button class="btn ghost sm" data-act="tab" data-v="players">Vybrat</button></div>
-  <div class="tb"></div>${seg(MODES,S.set.mode,'mode')}<small class="mut">${MODE_HINT[S.set.mode]}</small>
-  <button class="btn big" data-act="draw" ${n<4?'disabled':''}>${label}</button></div>`;
-  if(!rs.length)return h+emptyBox('🎾','Zatím žádné kolo. Klepni na „Losovat“.');
+  <div class="tb"></div>${seg(MODES,ST().mode,'mode')}<small class="mut">${modeHint()}</small>
+  <button class="btn big" data-act="draw" ${n<need?'disabled':''}>${label}</button></div>`;
+  if(!rs.length)return h+emptyBox(SPd().ico,'Zatím žádné kolo. Klepni na „Losovat“.');
   for(let i=rs.length-1;i>=0;i--)h+=roundHTML(rs[i],i,D,i===rs.length-1);
   return h;
 };
@@ -358,15 +401,15 @@ VIEW.round=()=>{
 VIEW.players=()=>{
   const D=derive(),live=livePl(),arch=S.players.filter(p=>p.arch).sort(byName);
   const list=live.slice().sort((a,b)=>UI.psort==='name'?byName(a,b):D.R[b.id].rating-D.R[a.id].rating);
-  const n=live.filter(p=>p.on).length;
-  let h=`<div class="card"><div class="row between"><div><b>${n}</b> z ${live.length} dostupných</div><div class="row gap"><button class="btn ghost sm" data-act="allOn">Všichni</button><button class="btn ghost sm" data-act="allOff">Nikdo</button></div></div>
+  const n=live.filter(p=>p[ON()]).length;
+  let h=`<div class="card"><div class="row between"><div><b>${n}</b> z ${live.length} dostupných<br><small class="mut">pro ${SPd().name.toLowerCase()}</small></div><div class="row gap"><button class="btn ghost sm" data-act="allOn">Všichni</button><button class="btn ghost sm" data-act="allOff">Nikdo</button></div></div>
   <div class="tb"></div>${seg([['name','Podle jména'],['rating','Podle ratingu']],UI.psort,'psort')}
   <button class="btn" data-act="addP" style="margin-top:0">+ Přidat hráče</button></div>`;
   if(!live.length)h+=emptyBox('👥','Žádní hráči.');
   else h+='<div class="card">'+list.map(p=>{
     const a=D.R[p.id];
     return`<div class="prow"><div class="pn" data-act="editP" data-id="${p.id}">${esc(p.name)}<small>${a.g} zápasů · ${a.w}V ${a.l}P</small></div><span class="rt">${Math.round(a.rating)}</span>
-    <label class="sw"><input type="checkbox" data-ch="on" data-id="${p.id}" ${p.on?'checked':''}><i></i></label></div>`}).join('')+'</div>';
+    <label class="sw"><input type="checkbox" data-ch="on" data-id="${p.id}" ${p[ON()]?'checked':''}><i></i></label></div>`}).join('')+'</div>';
   if(arch.length)h+=`<div class="card"><h3>Skrytí hráči</h3>`+arch.map(p=>`<div class="prow"><div class="pn" data-act="editP" data-id="${p.id}">${esc(p.name)}<small>klepni pro obnovení</small></div></div>`).join('')+'</div>';
   return h;
 };
@@ -384,7 +427,7 @@ function ladderTable(D){
     h+=`<tr data-act="detail" data-id="${x.id}"><td>${['🥇','🥈','🥉'][i]||i+1}</td><td class="l">${esc(nm(x.id))}</td><td>${x.g}</td><td>${x.w}-${x.d}-${x.l}</td><td><b>${Math.round(x.pts*10)/10}</b></td>
     <td>${Math.round(x.rating)}${ch!=null?` <small class="${ch>=0?'up':'down'}">${sign(ch)}</small>`:''}</td></tr>`;
   });
-  return h+'</table></div><p class="mut"><small>Body: '+S.set.win+' za výhru, '+S.set.draw+' za remízu, '+S.set.loss+' za prohru'+(S.set.perPt?', +'+S.set.perPt+' za každý vyhraný gem/bod':'')+'. Klepnutím na hráče uvidíš detail.</small></p>';
+  return h+'</table></div><p class="mut"><small>Body: '+ST().win+' za výhru, '+ST().draw+' za remízu, '+ST().loss+' za prohru'+(ST().perPt?', +'+ST().perPt+' za '+SPd().unit:'')+'. Klepnutím na hráče uvidíš detail.</small></p>';
 }
 function matrix(kind){
   const H=pairHist(null,UI.scope==='ses'?'ses':'all'),M=kind==='opp'?H.O:H.P,R=derive().R;
@@ -404,23 +447,25 @@ function matrix(kind){
   return h+'</table></div>';
 }
 VIEW.ladder=()=>{
-  const D=derive();
+  const D=derive(),sub=TS()>1?UI.lsub:(UI.lsub==='par'?'ladder':UI.lsub);
+  const tabs=[['ladder','🏆 Žebříček'],['opp','⚔️ Soupeři']];if(TS()>1)tabs.push(['par','🤝 Spoluhráči']);
   return seg([['ses','Tento den'],['all','Celkově']],UI.scope,'scope')
-   +seg([['ladder','🏆 Žebříček'],['opp','⚔️ Soupeři'],['par','🤝 Spoluhráči']],UI.lsub,'lsub')
-   +(UI.lsub==='ladder'?ladderTable(D):matrix(UI.lsub));
+   +seg(tabs,sub,'lsub')
+   +(sub==='ladder'?ladderTable(D):matrix(sub));
 };
 
 VIEW.more=()=>{
-  const st=S.set,cs=curSes(),others=S.sessions.filter(s=>s.id!==S.cur).slice().reverse();
+  const st=ST(),cs=curSes(),others=S.sessions.filter(s=>s.id!==S.cur&&s.sport===S.sport).slice().reverse();
   const fld=(k,lab,extra)=>`<div class="fld"><span>${lab}${extra?`<br><small class="mut">${extra}</small>`:''}</span><input type="number" step="any" inputmode="decimal" data-ch="set" data-k="${k}" value="${st[k]}"></div>`;
   let h=`<div class="card"><h3>📅 Aktuální den</h3><p><b>${esc(cs.name)}</b><br><small class="mut">${czDate(cs.date)} · ${sesRounds().length} kol</small></p>
   <div class="row gap wrap"><button class="btn sm" data-act="newSes">+ Nový den</button><button class="btn ghost sm" data-act="renSes">Přejmenovat</button></div>`;
   if(others.length)h+='<div class="tb"></div><small class="mut">Přepnout na dřívější den</small>'+others.map(s=>`<div class="prow"><div class="pn" data-act="swSes" data-id="${s.id}">${esc(s.name)}<small>${czDate(s.date)}</small></div><button class="btn ghost sm" data-act="delSes" data-id="${s.id}">🗑</button></div>`).join('');
-  h+=`</div><div class="card"><h3>⚙️ Nastavení</h3>
+  h+=`</div><div class="card"><h3>⚙️ Nastavení – ${SPd().name}</h3>
+  <p class="mut"><small>Každý sport má vlastní nastavení, rating i žebříček. Hráči jsou společní.</small></p>
   ${fld('courts','Počet kurtů','0 = podle počtu hráčů')}
   ${fld('k','Citlivost ratingu','větší = rating se mění rychleji')}
   ${fld('win','Bodů za výhru')}${fld('draw','Bodů za remízu')}${fld('loss','Bodů za prohru')}
-  ${fld('perPt','Bodů za každý vyhraný gem','0 = nepočítat')}
+  ${fld('perPt','Bodů za '+SPd().unit,'0 = nepočítat')}
   <div class="fld"><span>Kdo už s kým hrál<br><small class="mut">z jakého období se losuje</small></span><select data-ch="set" data-k="hist" style="width:150px"><option value="session" ${st.hist==='session'?'selected':''}>jen tento den</option><option value="all" ${st.hist==='all'?'selected':''}>vše dohromady</option></select></div></div>
   <div class="card"><h3>💾 Data a sdílení</h3>
   <button class="btn ghost" data-act="shareLad">📋 Žebříček jako text</button>
@@ -429,9 +474,10 @@ VIEW.more=()=>{
   <button class="btn ghost" data-act="dbx">☁️ Záloha na Dropbox</button>
   <button class="btn ghost" data-act="shareFile">📤 Sdílet zálohu (WhatsApp, e-mail…)</button></div>
   <div class="card"><details><summary><b>ℹ️ Jak to funguje</b></summary>
-  <p><b>Rating</b> je podobný šachovému Elu: každý hráč začíná na zvolené úrovni (Střední = 1000). Po zápase se rating týmů změní podle toho, jak výsledek odpovídal očekávání – výhra nad silnějším týmem přidá víc. Výraznější výhra změní rating o něco víc, nováčci (prvních 5 zápasů) se ladí rychleji.</p>
-  <p><b>Losování</b> nejdřív vybere, kdo hraje (kdo odehrál nejméně zápasů, ten nepauzuje), a pak hledá rozdělení do dvojic a zápasů tak, aby týmy byly vyrovnané, spoluhráči i soupeři se střídali a v týmu byl silný hráč se slabším.</p>
-  <p><b>Body</b> do žebříčku se sbírají každému hráči zvlášť podle výsledku jeho týmu. Rating i žebříček se vždy přepočítají z odehraných zápasů, takže opravu výsledku stačí jen přepsat.</p>
+  <p><b>Rating</b> je podobný šachovému Elu: každý hráč začíná na zvolené úrovni (Střední = 1000). Po zápase se rating změní podle toho, jak výsledek odpovídal očekávání – výhra nad silnějším soupeřem přidá víc. Výraznější výhra změní rating o něco víc, nováčci (prvních 5 zápasů) se ladí rychleji. Padel a squash mají rating oddělený.</p>
+  <p><b>Losování</b> nejdřív vybere, kdo hraje (kdo odehrál nejméně zápasů, ten nepauzuje). U padelu pak hledá rozdělení do dvojic tak, aby týmy byly vyrovnané, spoluhráči i soupeři se střídali a v týmu byl silný hráč se slabším. U squashe (1 na 1) hledá vyrovnané soupeře, kteří spolu ještě nehráli.</p>
+  <p><b>Body</b> do žebříčku se sbírají každému hráči zvlášť podle výsledku zápasu. Rating i žebříček se vždy přepočítají z odehraných zápasů, takže opravu výsledku stačí jen přepsat.</p>
+  <p><b>Sporty</b> přepínáš nahoře. Hráči jsou společní, ale dostupnost, rating, dny, žebříček a nastavení má každý sport vlastní.</p>
   <p><b>Data</b> jsou uložená v prohlížeči tohoto telefonu. Zálohu můžeš uložit na Dropbox (nejdřív ho v „Záloha na Dropbox“ připoj) nebo ji poslat jako soubor přes „Sdílet zálohu“ a na druhém telefonu nahrát. Stažení zálohy vždy nahradí všechna data v telefonu.</p></details></div>
   <div class="card"><h3>⚠️ Nebezpečná zóna</h3><button class="btn danger" data-act="reset">Smazat všechna data</button></div>`;
   return h;
@@ -441,7 +487,10 @@ VIEW.more=()=>{
 function render(){
   const y=window.scrollY;
   const cs=curSes();
-  $('#title').textContent='🎾 Padel · '+(cs?cs.name:'');
+  document.body.classList.toggle('squash',S.sport==='squash');
+  $('#title').textContent=SPd().ico+' '+(cs?cs.name:SPd().name);
+  $('#sp').innerHTML=Object.keys(SPORTS).map(k=>`<button class="${k===S.sport?'on':''}" data-act="sport" data-v="${k}">${SPORTS[k].name}</button>`).join('');
+  const tb=document.querySelector('#tabs button[data-t="round"]');if(tb)tb.innerHTML='<span>'+SPd().ico+'</span>Kolo';
   document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===UI.tab));
   $('#view').innerHTML=VIEW[UI.tab]();
   window.scrollTo(0,y);
@@ -458,33 +507,37 @@ function copyText(t){
 }
 function roundText(rd){
   const i=sesRounds().indexOf(rd)+1;
-  let t=`Padel – ${curSes().name}, kolo ${i}\n`;
-  rd.matches.forEach((m,k)=>{t+=`\nKurt ${k+1}: ${nm(m.a[0])} + ${nm(m.a[1])}  vs  ${nm(m.b[0])} + ${nm(m.b[1])}`+(isScored(m)?`  (${m.sa}:${m.sb})`:'')});
+  let t=`${SPd().name} – ${curSes().name}, kolo ${i}\n`;
+  rd.matches.forEach((m,k)=>{t+=`\nKurt ${k+1}: ${tName(m.a)}  vs  ${tName(m.b)}`+(isScored(m)?`  (${m.sa}:${m.sb})`:'')});
   if(rd.rest.length)t+=`\n\nOdpočívají: ${rd.rest.map(nm).join(', ')}`;
   return t;
 }
 function ladderText(){
   const D=derive(),src=UI.scope==='ses'?D.SS:D.R;
   const rows=livePl().map(p=>src[p.id]).filter(x=>x.g>0).sort((a,b)=>b.pts-a.pts||b.rating-a.rating);
-  let t='Žebříček – '+(UI.scope==='ses'?curSes().name:'celkově')+'\n';
+  let t=SPd().name+' – žebříček – '+(UI.scope==='ses'?curSes().name:'celkově')+'\n';
   rows.forEach((x,i)=>{t+=`\n${i+1}. ${nm(x.id)} – ${Math.round(x.pts*10)/10} b., ${x.w}V-${x.d}R-${x.l}P, rating ${Math.round(x.rating)}`});
   return t;
 }
 
 ACT.tab=d=>{UI.tab=d.v;UI.sel=null;render();window.scrollTo(0,0)};
-ACT.mode=d=>{S.set.mode=d.v;save();render()};
+ACT.mode=d=>{ST().mode=d.v;save();render()};
+ACT.sport=d=>{
+  if(d.v===S.sport)return;
+  S.sport=d.v;UI.sel=null;ensureSession();save(true);render();window.scrollTo(0,0);
+};
 ACT.psort=d=>{UI.psort=d.v;render()};
 ACT.scope=d=>{UI.scope=d.v;render()};
 ACT.lsub=d=>{UI.lsub=d.v;render()};
 ACT.lsort=d=>{UI.sort=d.v;render()};
 ACT.closeModal=closeModal;
-ACT.allOn=()=>{livePl().forEach(p=>p.on=true);save();render()};
-ACT.allOff=()=>{livePl().forEach(p=>p.on=false);save();render()};
+ACT.allOn=()=>{livePl().forEach(p=>p[ON()]=true);save();render()};
+ACT.allOff=()=>{livePl().forEach(p=>p[ON()]=false);save();render()};
 ACT.draw=()=>{
-  const ids=livePl().filter(p=>p.on).map(p=>p.id);
+  const ids=livePl().filter(p=>p[ON()]).map(p=>p.id);
   const rs=sesRounds(),last=rs[rs.length-1],rep=last&&!last.matches.some(isScored);
   const res=draw(ids,{exclude:rep?last.id:null});
-  if(!res){toast('Je potřeba aspoň 4 dostupní hráči');return}
+  if(!res){toast('Je potřeba aspoň '+(2*TS())+' dostupní hráči');return}
   if(rep){last.matches=res.matches;last.rest=res.rest;UI.open[last.id]=true}
   else{
     if(last)UI.open[last.id]=false;
@@ -515,19 +568,20 @@ CH.score=t=>{
   save();
   if(was||isScored(m))render();   /* překreslit až když je výsledek úplný (nebo se maže) */
 };
-CH.on=t=>{const p=P(t.dataset.id);if(p){p.on=t.checked;save();render()}};
+CH.on=t=>{const p=P(t.dataset.id);if(p){p[ON()]=t.checked;save();render()}};
 CH.set=t=>{
-  const k=t.dataset.k;
-  if(k==='hist')S.set.hist=t.value;
-  else{let v=parseFloat(String(t.value).replace(',','.'));if(isNaN(v)||v<0)v=defaults().set[k];S.set[k]=k==='courts'?Math.floor(v):v}
+  const k=t.dataset.k,st=ST();
+  if(k==='hist')st.hist=t.value;
+  else{let v=parseFloat(String(t.value).replace(',','.'));if(isNaN(v)||v<0)v=DSET()[k];st[k]=k==='courts'?Math.floor(v):v}
   save();render();
 };
 CH.lvl=t=>{$('#pr').value=t.value};
+CH.lvl2=t=>{$('#pr2').value=t.value};
 
 /* hráči */
 ACT.addP=()=>{
   modal(`<h2>Přidat hráče</h2><label>Jména (každé na nový řádek)</label><textarea id="pnames" rows="5" placeholder="Petr&#10;Jana&#10;Tomáš"></textarea>
-  <label>Úroveň (výchozí rating)</label><select id="plvl">${LEVELS.map(l=>`<option value="${l[1]}" ${l[1]===1000?'selected':''}>${l[0]} (${l[1]})</option>`).join('')}</select>
+  <label>Úroveň (výchozí rating pro oba sporty, jde změnit u hráče)</label><select id="plvl">${LEVELS.map(l=>`<option value="${l[1]}" ${l[1]===1000?'selected':''}>${l[0]} (${l[1]})</option>`).join('')}</select>
   <button class="btn" data-act="saveNew">Přidat</button><button class="btn ghost" data-act="closeModal">Zrušit</button>`);
 };
 ACT.saveNew=()=>{
@@ -536,37 +590,43 @@ ACT.saveNew=()=>{
   let added=0,dup=0;
   names.forEach(n=>{
     if(S.players.some(p=>p.name.toLowerCase()===n.toLowerCase())){dup++;return}
-    S.players.push({id:uid(),name:n,r0,on:true,arch:false});added++;
+    S.players.push({id:uid(),name:n,r0,r0s:r0,on:S.sport==='padel',on2:S.sport==='squash',arch:false});added++;
   });
   save();closeModal();render();
   toast('Přidáno: '+added+(dup?' (duplicitních jmen přeskočeno: '+dup+')':''));
 };
 ACT.demo=()=>{
   [['Adam',1200],['Petr',1150],['Martin',1100],['Jana',1050],['Tomáš',1000],['Honza',1000],['Eva',950],['Lucie',900],['Kuba',850],['Klára',800]]
-   .forEach(x=>S.players.push({id:uid(),name:x[0],r0:x[1],on:true,arch:false}));
+   .forEach(x=>S.players.push({id:uid(),name:x[0],r0:x[1],r0s:x[1],on:true,on2:true,arch:false}));
   save();render();toast('Přidáno 10 ukázkových hráčů');
 };
 ACT.editP=d=>{
-  const p=P(d.id),D=derive();if(!p)return;
-  const games=D.R[p.id].g;
+  const p=P(d.id);if(!p)return;
+  /* rating a počet zápasů v obou sportech (derive počítá pro aktuální sport, proto se dočasně přepne) */
+  const was=S.sport,info={};
+  ['padel','squash'].forEach(sp=>{S.sport=sp;const D=derive();info[sp]={r:Math.round(D.R[p.id].rating),g:D.R[p.id].g}});
+  S.sport=was;
+  const games=info.padel.g+info.squash.g;
+  const lvl=ch=>`<select data-ch="${ch}"><option value="">– rychlý výběr úrovně –</option>${LEVELS.map(l=>`<option value="${l[1]}">${l[0]} (${l[1]})</option>`).join('')}</select>`;
   modal(`<h2>${esc(p.name)}</h2><label>Jméno</label><input id="pn" value="${esc(p.name)}">
-  <label>Výchozí rating <small>(aktuální: ${Math.round(D.R[p.id].rating)})</small></label>
-  <select data-ch="lvl"><option value="">– rychlý výběr úrovně –</option>${LEVELS.map(l=>`<option value="${l[1]}">${l[0]} (${l[1]})</option>`).join('')}</select>
-  <input id="pr" type="number" inputmode="numeric" value="${p.r0}" style="margin-top:6px">
-  <p class="mut"><small>Změna výchozího ratingu přepočítá celý vývoj ratingu hráče.</small></p>
+  <label>🎾 Padel – výchozí rating <small>(aktuální: ${info.padel.r}, zápasů ${info.padel.g})</small></label>
+  ${lvl('lvl')}<input id="pr" type="number" inputmode="numeric" value="${p.r0}" style="margin-top:6px">
+  <label>⚫ Squash – výchozí rating <small>(aktuální: ${info.squash.r}, zápasů ${info.squash.g})</small></label>
+  ${lvl('lvl2')}<input id="pr2" type="number" inputmode="numeric" value="${p.r0s!=null?p.r0s:p.r0}" style="margin-top:6px">
+  <p class="mut"><small>Změna výchozího ratingu přepočítá celý vývoj ratingu hráče v daném sportu.</small></p>
   <button class="btn" data-act="saveP" data-id="${p.id}">Uložit</button>
   <button class="btn ghost" data-act="archP" data-id="${p.id}">${p.arch?'♻️ Obnovit mezi hráče':'🙈 Skrýt (zachová historii)'}</button>
   ${games===0?`<button class="btn danger" data-act="delP" data-id="${p.id}">Smazat hráče</button>`:''}
   <button class="btn ghost" data-act="closeModal">Zavřít</button>`);
 };
 ACT.saveP=d=>{
-  const p=P(d.id),n=$('#pn').value.trim(),r=parseFloat($('#pr').value);
+  const p=P(d.id),n=$('#pn').value.trim(),r=parseFloat($('#pr').value),r2=parseFloat($('#pr2').value);
   if(!n){toast('Jméno nesmí být prázdné');return}
   if(S.players.some(q=>q.id!==p.id&&q.name.toLowerCase()===n.toLowerCase())){toast('Takové jméno už existuje');return}
-  p.name=n;if(!isNaN(r))p.r0=r;
+  p.name=n;if(!isNaN(r))p.r0=r;if(!isNaN(r2))p.r0s=r2;
   save();closeModal();render();
 };
-ACT.archP=d=>{const p=P(d.id);p.arch=!p.arch;if(p.arch)p.on=false;save();closeModal();render()};
+ACT.archP=d=>{const p=P(d.id);p.arch=!p.arch;if(p.arch){p.on=false;p.on2=false}save();closeModal();render()};
 ACT.delP=d=>{S.players=S.players.filter(p=>p.id!==d.id);save();closeModal();render()};
 ACT.detail=d=>{
   const D=derive(),p=P(d.id),a=D.R[p.id],s=D.SS[p.id];
@@ -577,10 +637,10 @@ ACT.detail=d=>{
     arr.sort((x,y)=>best?y.pc-x.pc||y.g-x.g:x.pc-y.pc||y.g-x.g);
     const x=arr[0];return`${esc(nm(x.id))} <small class="mut">(${Math.round(x.pc*100)} % z ${x.g})</small>`;
   };
-  modal(`<h2>${esc(p.name)}</h2>
+  modal(`<h2>${esc(p.name)} <small class="mut">${SPd().ico} ${SPd().name}</small></h2>
   <div class="stats"><div><b>${Math.round(a.rating)}</b><small>rating${rank?' · #'+rank:''}</small></div><div><b>${Math.round(a.pts*10)/10}</b><small>bodů celkem</small></div><div><b>${a.g?Math.round(pctOf(a)*100)+' %':'–'}</b><small>úspěšnost</small></div>
   <div><b>${a.w}-${a.d}-${a.l}</b><small>V-R-P</small></div><div><b>${a.gf}:${a.ga}</b><small>skóre</small></div><div><b>${s.g}</b><small>zápasů tento den</small></div></div>
-  <p>🤝 Nejlepší spoluhráč: ${pick(a.pw,true)}</p><p>😬 Nejtěžší soupeř: ${pick(a.ow,false)}</p>
+  ${TS()>1?`<p>🤝 Nejlepší spoluhráč: ${pick(a.pw,true)}</p>`:''}<p>😬 Nejtěžší soupeř: ${pick(a.ow,false)}</p>
   <h3 class="mt">Vývoj ratingu</h3>${spark(a.hist)}
   <button class="btn ghost" data-act="editP" data-id="${p.id}">✏️ Upravit hráče</button><button class="btn ghost" data-act="closeModal">Zavřít</button>`);
 };
@@ -593,7 +653,7 @@ ACT.newSes=()=>{
 };
 ACT.saveSes=()=>{newSession($('#sn').value.trim());save();closeModal();UI.tab='round';UI.scope='ses';render()};
 ACT.renSes=()=>{const n=prompt('Nový název dne',curSes().name);if(n&&n.trim()){curSes().name=n.trim();save();render()}};
-ACT.swSes=d=>{S.cur=d.id;save();render()};
+ACT.swSes=d=>{S.cur=d.id;S.curBy[S.sport]=d.id;save(true);render()};
 ACT.delSes=d=>{
   if(!confirm('Smazat tento den včetně všech jeho kol? Ratingy se přepočítají.'))return;
   S.rounds=S.rounds.filter(r=>r.sid!==d.id);S.sessions=S.sessions.filter(s=>s.id!==d.id);
@@ -601,12 +661,12 @@ ACT.delSes=d=>{
 };
 
 /* data */
-ACT.export=()=>{download('padel-data-'+iso()+'.json',JSON.stringify(S,null,1),'application/json');toast('Záloha uložena')};
+ACT.export=()=>{download('padel-squash-data-'+iso()+'.json',JSON.stringify(S,null,1),'application/json');toast('Záloha uložena')};
 ACT.import=()=>{$('#file').value='';$('#file').click()};
 function applyData(j){
-  if(!j||!Array.isArray(j.players)||!Array.isArray(j.rounds))throw new Error('Soubor nevypadá jako záloha Padelu');
-  const n=Object.assign(defaults(),j);n.set=Object.assign(defaults().set,j.set||{});
-  S=n;ensureSession();save(true);render();
+  if(!j||!Array.isArray(j.players)||!Array.isArray(j.rounds))throw new Error('Soubor nevypadá jako záloha aplikace');
+  const keep=S.sport;   /* zvolený sport je věc tohoto telefonu, záloha ho nepřepíná */
+  S=merge(j);S.sport=keep;ensureSession();save(true);render();
 }
 ACT.reset=()=>{
   if(!confirm('Opravdu smazat všechny hráče, kola a výsledky?'))return;
@@ -616,10 +676,10 @@ ACT.reset=()=>{
 
 /* sdílení zálohy přes systémové menu telefonu (Dropbox, WhatsApp, e-mail, …) */
 ACT.shareFile=async()=>{
-  const name='padel-data-'+iso()+'.json';
+  const name='padel-squash-data-'+iso()+'.json';
   const file=new File([JSON.stringify(S,null,1)],name,{type:'application/json'});
   if(navigator.canShare&&navigator.canShare({files:[file]})){
-    try{await navigator.share({files:[file],title:'Padel – záloha dat'})}
+    try{await navigator.share({files:[file],title:'Padel & Squash – záloha dat'})}
     catch(e){if(e.name!=='AbortError')toast('Sdílení se nezdařilo, použij „Uložit zálohu“')}
   }else{
     ACT.export();
